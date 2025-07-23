@@ -12,10 +12,12 @@ from PIL import Image
 from io import BytesIO
 from urllib.request import urlopen
 import cv2
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 import uvicorn
 
 # Environment variables / Configuration
@@ -40,6 +42,18 @@ app = FastAPI(
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc"  # ReDoc alternative documentation
 )
+
+# Add CORS middleware to allow frontend connections
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Mount static files for serving the frontend
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Global model variable
 model_fn = None
@@ -93,27 +107,34 @@ class DetectionResponse(BaseModel):
             }
         }
 
-def load_image_into_numpy_array(path):
-    """Load an image from file into a numpy array and return original size.
+def load_image_into_numpy_array(path_or_file):
+    """Load an image from file, URL, or uploaded file into a numpy array and return original size.
 
     Puts image into numpy array to feed into tensorflow graph.
     Note that by convention we put it into a numpy array with shape
     (height, width, channels), where channels=3 for RGB.
 
     Args:
-        path: the file path to the image or URL
+        path_or_file: the file path to the image, URL, or UploadFile object
 
     Returns:
         uint8 numpy array with shape (img_height, img_width, 3) and original (width, height)
     """
     image = None
-    if path.startswith('http'):
-        response = urlopen(path)
+    
+    # Handle UploadFile object
+    if hasattr(path_or_file, 'file'):
+        image_data = path_or_file.file.read()
+        image = Image.open(BytesIO(image_data))
+    # Handle URL
+    elif isinstance(path_or_file, str) and path_or_file.startswith('http'):
+        response = urlopen(path_or_file)
         image_data = response.read()
         image_data = BytesIO(image_data)
         image = Image.open(image_data)
+    # Handle file path
     else:
-        image_data = tf.io.gfile.GFile(path, 'rb').read()
+        image_data = tf.io.gfile.GFile(path_or_file, 'rb').read()
         image = Image.open(BytesIO(image_data))
 
     (im_width, im_height) = image.size
@@ -236,11 +257,11 @@ def load_model(model_path):
         return None
 
 
-def run_inference(model_fn, image_url, min_score_thresh=MIN_SCORE_THRESH):
-    """Run inference on an image from URL and return API response data."""
+def run_inference(model_fn, image_source, min_score_thresh=MIN_SCORE_THRESH):
+    """Run inference on an image from URL, file path, or UploadFile and return API response data."""
     
-    # Load the image from the URL and get original dimensions
-    original_image_np, original_size = load_image_into_numpy_array(image_url)
+    # Load the image from the source and get original dimensions
+    original_image_np, original_size = load_image_into_numpy_array(image_source)
     original_width, original_height = original_size
     print(f"Loaded image with original size: {original_width}x{original_height}")
 
@@ -341,11 +362,13 @@ async def startup_event():
     print("\n📋 Available Endpoints:")
     print("  🌐 API Root:        http://localhost:8000/")
     print("  🔍 Object Detection: http://localhost:8000/detect")
+    print("  📤 File Upload:     http://localhost:8000/detect-upload")
     print("  ❤️  Health Check:    http://localhost:8000/health")
+    print("  🎨 Frontend App:    http://localhost:8000/app")
     print("\n📚 Interactive Documentation:")
     print("  📖 Swagger UI:      http://localhost:8000/docs")
     print("  📄 ReDoc:           http://localhost:8000/redoc")
-    print("\n💡 Click on the Swagger UI link above to test the API!")
+    print("\n💡 Open the Frontend App at http://localhost:8000/app to use the web interface!")
     print("="*60 + "\n")
 
 # Health check endpoint
@@ -355,10 +378,10 @@ async def startup_event():
 async def health_check():
     return {"status": "healthy", "model_loaded": model_fn is not None}
 
-# Object detection endpoint
+# Object detection endpoint for URL
 @app.post("/detect", 
           response_model=DetectionResponse,
-          summary="Detect Objects",
+          summary="Detect Objects from URL",
           description="Run object detection on an image from a URL. Returns the number of detections, bounding boxes, and a base64-encoded image with drawn bounding boxes.")
 async def detect_objects(request: DetectionRequest):
     try:
@@ -373,6 +396,43 @@ async def detect_objects(request: DetectionRequest):
     except Exception as e:
         print(f"Error during inference: {e}")
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+
+# Object detection endpoint for file upload
+@app.post("/detect-upload", 
+          response_model=DetectionResponse,
+          summary="Detect Objects from Uploaded File",
+          description="Run object detection on an uploaded image file. Returns the number of detections, bounding boxes, and a base64-encoded image with drawn bounding boxes.")
+async def detect_objects_upload(
+    file: UploadFile = File(..., description="Image file to analyze"),
+    min_score_threshold: float = Form(MIN_SCORE_THRESH, description="Minimum confidence score for detections")
+):
+    try:
+        if model_fn is None:
+            raise HTTPException(status_code=500, detail="Model not loaded")
+        
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Run inference
+        result = run_inference(model_fn, file, min_score_threshold)
+        
+        return DetectionResponse(**result)
+        
+    except Exception as e:
+        print(f"Error during inference: {e}")
+        raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+
+# Frontend route
+@app.get("/app", response_class=HTMLResponse)
+async def get_frontend():
+    """Serve the frontend application."""
+    try:
+        with open("static/index.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content, status_code=200)
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Frontend not found</h1><p>Please make sure static/index.html exists.</p>", status_code=404)
 
 # Root endpoint with API information
 @app.get("/",
@@ -390,7 +450,9 @@ async def root():
         },
         "endpoints": {
             "POST /detect": "Run object detection on an image from URL",
+            "POST /detect-upload": "Run object detection on an uploaded image file",
             "GET /health": "Check API health status",
+            "GET /app": "Access the web frontend application",
             "GET /docs": "Swagger UI API documentation",
             "GET /redoc": "ReDoc API documentation"
         }
@@ -403,6 +465,7 @@ if __name__ == "__main__":
     print("="*60)
     print("⏳ Loading model and starting server...")
     print("📡 Server will be available at: http://localhost:8000")
+    print("🎨 Frontend App will be at: http://localhost:8000/app")
     print("📖 Swagger UI will be at: http://localhost:8000/docs")
     print("="*60 + "\n")
     

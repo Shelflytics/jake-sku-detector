@@ -1,10 +1,9 @@
 """
-Object Detection FastAPI Server
-This FastAPI server loads a TensorFlow SavedModel and provides an endpoint for object detection inference.
+Lightweight Object Detection FastAPI Server
+FastAPI server for object detection inference using TensorFlow SavedModel.
 """
 
 import os
-import io
 import base64
 import tensorflow as tf
 import numpy as np
@@ -13,11 +12,8 @@ from io import BytesIO
 from urllib.request import urlopen
 import cv2
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, Union
+from typing import Optional
 import uvicorn
 
 # Environment variables / Configuration
@@ -38,38 +34,18 @@ CATEGORY_INDEX = {
 app = FastAPI(
     title="Object Detection API",
     version="1.0.0",
-    description="A FastAPI server for object detection using TensorFlow SavedModel. Detects objects in images and returns bounding boxes with confidence scores.",
-    docs_url="/docs",  # Swagger UI
-    redoc_url="/redoc"  # ReDoc alternative documentation
+    description="Lightweight FastAPI server for object detection using TensorFlow SavedModel.",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
-
-# Add CORS middleware to allow frontend connections
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-)
-
-# Mount static files for serving the frontend
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Global model variable
 model_fn = None
 
 # Request/Response models
 class DetectionRequest(BaseModel):
-    image_url: str = "https://example.com/image.jpg"
+    image_url: str
     min_score_threshold: Optional[float] = MIN_SCORE_THRESH
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "image_url": "https://media.istockphoto.com/id/1412238893/photo/spaghetti-pasta-fusilli-lasagna-packagings-on-shelf-at-supermarket-3d-illustration.jpg?s=612x612&w=0&k=20&c=kpU6rRZn5_KnsIroyka05xc-RiTkiRx43JERRN2UFnM=",
-                "min_score_threshold": 0.5
-            }
-        }
 
 class BoundingBox(BaseModel):
     x1: float
@@ -86,26 +62,6 @@ class DetectionResponse(BaseModel):
     detection_count: int
     image_base64: str
     detections: list[Detection]
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "detection_count": 2,
-                "image_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
-                "detections": [
-                    {
-                        "class_name": "object",
-                        "confidence": 0.85,
-                        "bbox": {
-                            "x1": 100.5,
-                            "y1": 200.3,
-                            "x2": 300.7,
-                            "y2": 400.9
-                        }
-                    }
-                ]
-            }
-        }
 
 def load_image_into_numpy_array(path_or_file):
     """Load an image from file, URL, or uploaded file into a numpy array and return original size.
@@ -353,44 +309,29 @@ async def startup_event():
     if model_fn is None:
         raise RuntimeError("Failed to load the model")
     
-    print("\n" + "="*60)
-    print("🚀 Object Detection API Server Started!")
-    print("="*60)
-    print("Model loaded successfully!")
-    print(f"📊 Model input size: {HEIGHT}x{WIDTH}")
-    print(f"🎯 Default confidence threshold: {MIN_SCORE_THRESH}")
-    print("\n📋 Available Endpoints:")
-    print("  🌐 API Root:        http://localhost:8000/")
-    print("  🔍 Object Detection: http://localhost:8000/detect")
-    print("  📤 File Upload:     http://localhost:8000/detect-upload")
-    print("  ❤️  Health Check:    http://localhost:8000/health")
-    print("  🎨 Frontend App:    http://localhost:8000/app")
-    print("\n📚 Interactive Documentation:")
-    print("  📖 Swagger UI:      http://localhost:8000/docs")
-    print("  📄 ReDoc:           http://localhost:8000/redoc")
-    print("\n💡 Open the Frontend App at http://localhost:8000/app to use the web interface!")
-    print("="*60 + "\n")
+    print("Object Detection API Server Started!")
+    print(f"Model input size: {HEIGHT}x{WIDTH}")
+    print(f"Default confidence threshold: {MIN_SCORE_THRESH}")
+    print("Available endpoints:")
+    print("  POST /detect - Object detection from URL")
+    print("  POST /detect-upload - Object detection from uploaded file")
+    print("  GET /health - Health check")
+    print("  GET /docs - Swagger UI documentation")
+    print("  GET /redoc - ReDoc documentation")
 
 # Health check endpoint
-@app.get("/health", 
-         summary="Health Check",
-         description="Check if the API is running and the model is loaded properly.")
+@app.get("/health")
 async def health_check():
     return {"status": "healthy", "model_loaded": model_fn is not None}
 
 # Object detection endpoint for URL
-@app.post("/detect", 
-          response_model=DetectionResponse,
-          summary="Detect Objects from URL",
-          description="Run object detection on an image from a URL. Returns the number of detections, bounding boxes, and a base64-encoded image with drawn bounding boxes.")
+@app.post("/detect", response_model=DetectionResponse)
 async def detect_objects(request: DetectionRequest):
     try:
         if model_fn is None:
             raise HTTPException(status_code=500, detail="Model not loaded")
         
-        # Run inference
         result = run_inference(model_fn, request.image_url, request.min_score_threshold)
-        
         return DetectionResponse(**result)
         
     except Exception as e:
@@ -398,75 +339,28 @@ async def detect_objects(request: DetectionRequest):
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
 # Object detection endpoint for file upload
-@app.post("/detect-upload", 
-          response_model=DetectionResponse,
-          summary="Detect Objects from Uploaded File",
-          description="Run object detection on an uploaded image file. Returns the number of detections, bounding boxes, and a base64-encoded image with drawn bounding boxes.")
+@app.post("/detect-upload", response_model=DetectionResponse)
 async def detect_objects_upload(
-    file: UploadFile = File(..., description="Image file to analyze"),
-    min_score_threshold: float = Form(MIN_SCORE_THRESH, description="Minimum confidence score for detections")
+    file: UploadFile = File(...),
+    min_score_threshold: float = Form(MIN_SCORE_THRESH)
 ):
     try:
         if model_fn is None:
             raise HTTPException(status_code=500, detail="Model not loaded")
         
-        # Validate file type
         if not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        # Run inference
         result = run_inference(model_fn, file, min_score_threshold)
-        
         return DetectionResponse(**result)
         
     except Exception as e:
         print(f"Error during inference: {e}")
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
-# Frontend route
-@app.get("/app", response_class=HTMLResponse)
-async def get_frontend():
-    """Serve the frontend application."""
-    try:
-        with open("static/index.html", "r", encoding="utf-8") as f:
-            html_content = f.read()
-        return HTMLResponse(content=html_content, status_code=200)
-    except FileNotFoundError:
-        return HTMLResponse(content="<h1>Frontend not found</h1><p>Please make sure static/index.html exists.</p>", status_code=404)
-
-# Root endpoint with API information
-@app.get("/",
-         summary="API Information",
-         description="Get basic information about the Object Detection API and available endpoints.")
-async def root():
-    return {
-        "message": "Object Detection API",
-        "version": "1.0.0",
-        "description": "FastAPI server for object detection using TensorFlow SavedModel",
-        "model_info": {
-            "input_size": f"{HEIGHT}x{WIDTH}",
-            "default_threshold": MIN_SCORE_THRESH,
-            "supported_classes": list(CATEGORY_INDEX.values())
-        },
-        "endpoints": {
-            "POST /detect": "Run object detection on an image from URL",
-            "POST /detect-upload": "Run object detection on an uploaded image file",
-            "GET /health": "Check API health status",
-            "GET /app": "Access the web frontend application",
-            "GET /docs": "Swagger UI API documentation",
-            "GET /redoc": "ReDoc API documentation"
-        }
-    }
-
 
 if __name__ == "__main__":
-    print("\n" + "="*60)
-    print("🔧 Starting Object Detection API Server...")
-    print("="*60)
-    print("⏳ Loading model and starting server...")
-    print("📡 Server will be available at: http://localhost:8000")
-    print("🎨 Frontend App will be at: http://localhost:8000/app")
-    print("📖 Swagger UI will be at: http://localhost:8000/docs")
-    print("="*60 + "\n")
-    
+    print("Starting Object Detection API Server...")
+    print("Server will be available at: http://localhost:8000")
+    print("Swagger UI will be available at: http://localhost:8000/docs")
     uvicorn.run(app, host="0.0.0.0", port=8000)

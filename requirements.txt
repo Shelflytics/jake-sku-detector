@@ -1,9 +1,9 @@
 # Core dependencies for lightweight object detection API
 fastapi==0.116.1
 uvicorn==0.35.0
-tensorflow==2.19.0
-numpy==2.1.3
+numpy==1.26.4
 pillow==11.3.0
-opencv-python==4.12.0.88
 pydantic==2.11.7
 python-multipart==0.0.20
+onnxruntime
+requests

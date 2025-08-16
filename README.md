@@ -1,25 +1,28 @@
-# SKU Detection API
+# SKU Detection Engine
 
-A lightweight FastAPI server for Stock Keeping Unit (SKU) identification using ONNX model (RetinaNet).
+A lightweight FastAPI server for Stock Keeping Unit (SKU) detection using quantized ONNX model (RetinaNet). This core detection engine provides the underlying ML inference capabilities for SKU detection workflows.
 
 ## About
 
-This API detects and identifies products/SKUs in retail images. The model provides general SKU detection with a single detection class, suitable for:
+This detection engine detects products/SKUs in retail images using a trained RetinaNet model. The engine provides general SKU detection with a single detection class, suitable for:
 
 - Retail inventory management
 - Product recognition in shelf images
 - Automated stock monitoring
-- Package/product identification
+- Package/product detection
 
-**Note:** The current model supports general SKU detection only, not specific product classification. All detected items are identified as generic "products" (class_id: 1).
+**Note:** This engine supports general SKU detection only, not specific product classification. All detected items are detected as generic "products" (class_id: 1).
+
+**Architecture:** This service acts as the core detection engine and can be integrated with higher-level APIs (like `jake-detector-api`) for enhanced business logic and workflow management.
 
 ## Features
 
-- SKU detection via URL or file upload
-- ONNX model support for fast inference
-- RESTful API with JSON responses
+- Core SKU detection engine with quantized ONNX model
+- Fast inference for real-time detection with optimized model size
+- RESTful API endpoints for integration
 - Base64 encoded result images with bounding boxes drawn around detected products
-- Product identification with confidence scores
+- Confidence scoring for detection quality assessment
+- Direct integration ready for higher-level services
 
 ## Installation
 
@@ -33,15 +36,17 @@ pip install -r requirements.txt
 
 ## Usage
 
-Start the server:
+Start the detection engine:
 
 ```bash
 python app.py
 ```
 
-The API will be available at `http://localhost:8000`
+The detection engine will be available at `http://localhost:8000`
 
 **Documentation:** Visit `http://localhost:8000/docs` for interactive Swagger UI
+
+**Integration:** This engine can be integrated with higher-level APIs for enhanced workflow management.
 
 ## API Endpoints
 
@@ -69,7 +74,7 @@ Health check endpoint
 
 ## Response Format
 
-The API returns detected SKUs with bounding box coordinates, confidence scores, and class IDs for product identification:
+The API returns detected SKUs with bounding box coordinates, confidence scores, and class IDs for product detection:
 
 ```json
 {
@@ -91,6 +96,6 @@ The API returns detected SKUs with bounding box coordinates, confidence scores, 
 **Fields:**
 
 - `detections`: Array of detected SKUs with pixel coordinates
-- `num_detections`: Total count of identified products
+- `num_detections`: Total count of detected products
 - `image_base64`: Original image with red bounding boxes drawn around detected SKUs
-- `class_id`: Product/SKU identifier for inventory management
+- `class_id`: Product/SKU detector for inventory management

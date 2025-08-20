@@ -188,8 +188,8 @@ async def health_check():
 
 if __name__ == "__main__":
     print("🚀 Starting SKU Detection API...")
-    print("📋 API Documentation: http://localhost:8000/docs")
-    print("🔄 Alternative Docs: http://localhost:8000/redoc") 
-    print("❤️  Health Check: http://localhost:8000/health")
+    print("📋 API Documentation: http://localhost:5000/docs")
+    print("🔄 Alternative Docs: http://localhost:5000/redoc") 
+    print("❤️  Health Check: http://localhost:5000/health")
     print("=" * 50)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
